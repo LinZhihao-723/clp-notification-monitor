@@ -17,10 +17,12 @@ class CompressionBuffer:
         s3_endpoint: str,
         max_buffer_size: int,
         min_refresh_period: int,
+        mnt_prefix: str,
     ):
         self._logger: Logger = logger
         self._jobs_collection: Collection = jobs_collection  # type: ignore
         self._endpoint_url: str = s3_endpoint
+        self._mnt_prefix: str = str(PurePath(mnt_prefix))
         self._path_prefixes: List[Dict[str, str]] = []
 
         self.__path_list: List[PurePath] = []
@@ -106,6 +108,36 @@ class CompressionBuffer:
             "status": "pending",
             "submission_timestamp": floor(time.time() * 1000),
         }
+        self._jobs_collection.insert_one(new_job)
+        return True
+
+    def try_compress_from_fs(self) -> bool:
+        """
+        Attempts to send a compression job with fs mapping.
+        :return: True on success.
+        """
+        if not self.ready_for_compression():
+            return False
+
+        compression_path: List[str]
+        with self.__lock:
+            compression_path = [
+                str(PurePath(self._mnt_prefix + str(s3_path)))
+                for s3_path in self.__path_list
+            ]
+            self.clear_buffer()
+
+        new_job = {
+            "input_type": "fs",
+            "input_config": {
+                "path_prefix_to_remove": str(self._mnt_prefix),
+                "paths": compression_path,
+            },
+            "output_config": {},
+            "status": "pending",
+            "submission_timestamp": floor(time.time() * 1000),
+        }
+        logger.info(new_job)
         self._jobs_collection.insert_one(new_job)
         return True
 

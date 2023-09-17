@@ -70,7 +70,7 @@ def submit_compression_jobs_thread_entry(
         while True:
             compression_buffer.wait_for_compression_jobs()
             sleep_time: int = 1
-            while False is compression_buffer.try_compress():
+            while False is compression_buffer.try_compress_from_fs():
                 time.sleep(sleep_time)
                 sleep_time = min(sleep_time * 2, max_polling_period)
     except Exception as e:
@@ -121,6 +121,11 @@ def main(argv: List[str]) -> int:
         required=True,
         help="The path prefix that will trigger the filer notification.",
     )
+    parser.add_argument(
+        "--seaweed-mnt-prefix",
+        required=True,
+        help="The path prefix that the seaweed-fs is mount on",
+    )
     parser.add_argument("--db-uri", required=True, help="Regional compression DB uri")
     args: argparse.Namespace = parser.parse_args(argv[1:])
 
@@ -128,6 +133,7 @@ def main(argv: List[str]) -> int:
     endpoint: str = args.seaweed_filer_endpoint
     s3_endpoint: str = args.seaweed_s3_endpoint
     db_uri: str = args.db_uri
+    mnt_prefix: str = args.seaweed_mnt_prefix
     filer_notification_path_prefix: Path = Path(args.filer_notification_path_prefix)
 
     seaweedfs_client: SeaweedFSClient
