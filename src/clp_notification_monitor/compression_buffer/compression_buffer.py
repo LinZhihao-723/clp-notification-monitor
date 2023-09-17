@@ -28,7 +28,7 @@ class CompressionBuffer:
         self.__first_path_timestamp: Optional[datetime] = None
 
         self.__max_buffer_size: int = max_buffer_size
-        self.__min_refresh_period: timedelta = timedelta(microseconds=min_refresh_period)
+        self.__min_refresh_period: timedelta = timedelta(milliseconds=min_refresh_period)
 
         self.__lock: Lock = Lock()
         self.__populate_buffer_cv: Condition = Condition(self.__lock)
