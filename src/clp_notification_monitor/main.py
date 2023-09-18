@@ -165,6 +165,7 @@ def main(argv: List[str]) -> int:
             s3_endpoint=s3_endpoint,
             max_buffer_size=16 * 1024 * 1024,  # 16MB
             min_refresh_period=5 * 1000,  # 5 seconds
+            mnt_prefix=mnt_prefix,
         )
     except Exception as e:
         logger.error(f"Failed to initiate Compression Buffer: {e}")
