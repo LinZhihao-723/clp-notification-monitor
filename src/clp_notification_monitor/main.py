@@ -75,6 +75,7 @@ def submit_compression_jobs_thread_entry(
                 sleep_time = min(sleep_time * 2, max_polling_period)
     except Exception as e:
         logger.error(f"Error on compression buffer: {e}")
+    finally:
         exit.set()
 
 
@@ -99,6 +100,7 @@ def filer_ingestion_listener_thread_entry(
             )
     except Exception as e:
         logger.error(f"Error on Filer notification listener: {e}")
+    finally:
         exit.set()
 
 
@@ -143,17 +145,18 @@ def main(argv: List[str]) -> int:
         logger.error(f"Failed to initiate seaweedfs client: {e}")
         return -1
 
-    mongodb: pymongo.mongo_client.MongoClient  # type: ignore
+    db_client: pymongo.mongo_client.MongoClient  # type: ignore
     archive_db: pymongo.database.Database  # type: ignore
     jobs_collection: pymongo.collection.Collection  # type: ignore
     logger.info("Start initiating MongoDB client.")
     try:
-        mongodb = pymongo.mongo_client.MongoClient(db_uri)
-        archive_db = mongodb.get_default_database()
+        db_client = pymongo.mongo_client.MongoClient(db_uri)
+        archive_db = db_client.get_default_database()
         jobs_collection = archive_db["cjobs"]
     except Exception as e:
         logger.error(f"Failed to initiate MongoDB: {e}")
         seaweedfs_client.close()
+        db_client.close()
         return -1
     logger.info("MongoDB client successfully initiated.")
 
@@ -170,6 +173,7 @@ def main(argv: List[str]) -> int:
     except Exception as e:
         logger.error(f"Failed to initiate Compression Buffer: {e}")
         seaweedfs_client.close()
+        db_client.close()
         return -1
 
     exit_event: Event = Event()
@@ -185,6 +189,7 @@ def main(argv: List[str]) -> int:
     except Exception as e:
         logger.error(f"Failed to initiate Job Submission Thread: {e}")
         seaweedfs_client.close()
+        db_client.close()
         return -1
 
     filer_listener_thread: Thread
@@ -203,9 +208,11 @@ def main(argv: List[str]) -> int:
     except Exception as e:
         logger.error(f"Failed to initiate Filer listener thread: {e}")
         seaweedfs_client.close()
+        db_client.close()
         return -1
 
     while False is exit_event.is_set():
         time.sleep(60)
     seaweedfs_client.close()
+    db_client.close()
     return 0
