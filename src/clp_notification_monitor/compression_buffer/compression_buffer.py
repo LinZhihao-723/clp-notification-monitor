@@ -1,29 +1,18 @@
-import time
 from datetime import datetime, timedelta
 from logging import Logger
-from math import floor
 from pathlib import PurePath
 from threading import Condition, Lock
-from typing import Dict, List, Optional
-
-from pymongo.collection import Collection
+from typing import List, Optional
 
 
 class CompressionBuffer:
     def __init__(
         self,
         logger: Logger,
-        jobs_collection: Collection,  # type: ignore
-        s3_endpoint: str,
         max_buffer_size: int,
         min_refresh_period: int,
-        mnt_prefix: str,
     ):
         self._logger: Logger = logger
-        self._jobs_collection: Collection = jobs_collection  # type: ignore
-        self._endpoint_url: str = s3_endpoint
-        self._mnt_prefix: PurePath = PurePath(mnt_prefix)
-        self._path_prefixes: List[Dict[str, str]] = []
 
         self.__path_list: List[PurePath] = []
         self.__total_buffer_size: int = 0
@@ -81,71 +70,16 @@ class CompressionBuffer:
             return True
         return False
 
-    def try_compress(self) -> bool:
+    def get_paths_to_compress(self) -> List[PurePath]:
         """
-        Attempts to send a compression job.
-        :return: True on success.
-        """
-        if not self.ready_for_compression():
-            return False
-
-        path_prefixes: List[Dict[str, str]]
-        with self.__lock:
-            path_prefixes = [
-                self.generate_compression_entry_from_s3_path_prefix(s3_path)
-                for s3_path in self.__path_list
-            ]
-            self.clear_buffer()
-
-        new_job = {
-            "input_type": "s3",
-            "input_config": {
-                "access_key_id": "unused",
-                "secret_access_key": "undefined",
-                "buckets": path_prefixes,
-            },
-            "output_config": {},
-            "status": "pending",
-            "submission_timestamp": floor(time.time() * 1000),
-        }
-        self._jobs_collection.insert_one(new_job)
-        return True
-
-    def try_compress_from_fs(self) -> bool:
-        """
-        Attempts to send a compression job with fs mapping.
-        :return: True on success.
+        :return: The path list of the current buffer if the compression job can
+        be fired. Otherwise, returns an empty list.
         """
         if not self.ready_for_compression():
-            return False
+            return []
 
-        compression_path: List[str]
         with self.__lock:
-            compression_path = [
-                str(PurePath(str(self._mnt_prefix) + str(s3_path))) for s3_path in self.__path_list
-            ]
+            # Get a deepcopy of the current path list
+            path_list_to_return = list(self.__path_list)
             self.clear_buffer()
-
-        new_job = {
-            "input_type": "fs",
-            "input_config": {
-                "path_prefix_to_remove": str(self._mnt_prefix),
-                "paths": compression_path,
-            },
-            "output_config": {},
-            "status": "pending",
-            "submission_timestamp": floor(time.time() * 1000),
-        }
-        self._jobs_collection.insert_one(new_job)
-        self._logger.info("Submitted the job to db")
-        return True
-
-    def generate_compression_entry_from_s3_path_prefix(self, s3_path: PurePath) -> Dict[str, str]:
-        return {
-            "endpoint_url": self._endpoint_url,
-            "s3_path_prefix": str(s3_path),
-            # Remove the bucket name from the path prefixes while displaying the
-            # mounted compressed results on the WebUI. To construct the prefix
-            # to remove, join the leading slash with the bucket name.
-            "s3_path_prefix_to_remove_from_mount": "".join(s3_path.parts[0:1]),
-        }
+        return path_list_to_return

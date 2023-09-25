@@ -1,13 +1,14 @@
 import argparse
 import logging
 import logging.handlers
+import math
 import pathlib
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Thread
-from typing import Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 import pymongo
 
@@ -56,7 +57,13 @@ def logger_init(log_file_path_str: Optional[str], log_level: int) -> None:
 
 
 def submit_compression_jobs_thread_entry(
-    compression_buffer: CompressionBuffer, max_polling_period: int, exit: Event
+    compression_buffer: CompressionBuffer,
+    max_polling_period: int,
+    jobs_collection: pymongo.collection.Collection,  # type: ignore
+    input_type: str,
+    seaweed_s3_endpoint_url: str,
+    seaweed_mnt_prefix: str,
+    exit: Event,
 ) -> None:
     """
     The entry of the thread to submit compression jobs from the compression
@@ -70,9 +77,56 @@ def submit_compression_jobs_thread_entry(
         while True:
             compression_buffer.wait_for_compression_jobs()
             sleep_time: int = 1
-            while False is compression_buffer.try_compress_from_fs():
-                time.sleep(sleep_time)
-                sleep_time = min(sleep_time * 2, max_polling_period)
+            while True:
+                paths_to_compress = compression_buffer.get_paths_to_compress()
+                if len(paths_to_compress) > 0:
+                    new_job_entry: Dict[str, Any]
+                    if "s3" == input_type:
+                        input_buckets = []
+                        for full_s3_path in paths_to_compress:
+                            input_buckets.append(
+                                {
+                                    "endpoint_url": seaweed_s3_endpoint_url,
+                                    "s3_path_prefix": str(full_s3_path),
+                                    # Remove the bucket name from the path prefixes
+                                    "s3_path_prefix_to_remove_from_mount": "".join(
+                                        full_s3_path.parts[:2]
+                                    ),
+                                }
+                            )
+                        new_job_entry = {
+                            "input_type": "s3",
+                            "input_config": {
+                                "access_key_id": "",  # not used
+                                "secret_access_key": "",  # not used
+                                "buckets": input_buckets,
+                            },
+                            "output_config": {},
+                            "status": "pending",
+                            "submission_timestamp": math.floor(time.time() * 1000),
+                        }
+                    else:
+                        fs_compression_paths = []
+                        for full_s3_path in paths_to_compress:
+                            mounted_path_str = seaweed_mnt_prefix + str(full_s3_path)
+                            fs_compression_paths.append(mounted_path_str)
+                        new_job_entry = {
+                            "input_type": "fs",
+                            "input_config": {
+                                "path_prefix_to_remove": seaweed_mnt_prefix,
+                                "paths": fs_compression_paths,
+                            },
+                            "output_config": {},
+                            "status": "pending",
+                            "submission_timestamp": math.floor(time.time() * 1000),
+                        }
+
+                    jobs_collection.insert_one(new_job_entry)
+                    logger.info("Submitted job to compression database.")
+                    break
+                else:
+                    time.sleep(sleep_time)
+                    sleep_time = min(sleep_time * 2, max_polling_period)
     except Exception as e:
         logger.error(f"Error on compression buffer: {e}")
     finally:
@@ -111,36 +165,36 @@ def main(argv: List[str]) -> int:
     parser.add_argument(
         "--seaweed-filer-endpoint",
         required=True,
-        help="The endpoint of the SeaweedFS Filer server.",
+        help="The endpoint of the SeaweedFS Filer server. Used for filer notifications.",
     )
     parser.add_argument(
-        "--seaweed-s3-endpoint",
+        "--seaweed-s3-endpoint-url",
         required=True,
-        help="The endpoint of the SeaweedFS S3 server.",
+        help="The endpoint of the SeaweedFS S3 server. Used for filer access.",
     )
     parser.add_argument(
         "--filer-notification-path-prefix",
         required=True,
-        help="The path prefix that will trigger the filer notification.",
-    )
-    parser.add_argument(
-        "--seaweed-mnt-prefix",
-        required=True,
-        help="The path prefix that the seaweed-fs is mount on",
+        help="The path prefix to monitor the filer notifications.",
     )
     parser.add_argument("--db-uri", required=True, help="Regional compression DB uri")
+    # FS ingestion option
+    parser.add_argument(
+        "--seaweed-mnt-prefix",
+        help="The path prefix that the seaweed-fs is mount on",
+    )
     args: argparse.Namespace = parser.parse_args(argv[1:])
 
     logger_init("./logs/notification.log", logging.INFO)
-    endpoint: str = args.seaweed_filer_endpoint
-    s3_endpoint: str = args.seaweed_s3_endpoint
+    seaweed_filer_endpoint: str = args.seaweed_filer_endpoint
+    seaweed_s3_endpoint_url: str = args.seaweed_s3_endpoint_url
     db_uri: str = args.db_uri
-    mnt_prefix: str = args.seaweed_mnt_prefix
+    seaweed_mnt_prefix: str = args.seaweed_mnt_prefix
     filer_notification_path_prefix: Path = Path(args.filer_notification_path_prefix)
 
     seaweedfs_client: SeaweedFSClient
     try:
-        seaweedfs_client = SeaweedFSClient("clp—testing", endpoint, logger)
+        seaweedfs_client = SeaweedFSClient("clp—user", seaweed_filer_endpoint, logger)
     except Exception as e:
         logger.error(f"Failed to initiate seaweedfs client: {e}")
         return -1
@@ -164,11 +218,8 @@ def main(argv: List[str]) -> int:
     try:
         compression_buffer = CompressionBuffer(
             logger=logger,
-            jobs_collection=jobs_collection,
-            s3_endpoint=s3_endpoint,
             max_buffer_size=16 * 1024 * 1024,  # 16MB
             min_refresh_period=5 * 1000,  # 5 seconds
-            mnt_prefix=mnt_prefix,
         )
     except Exception as e:
         logger.error(f"Failed to initiate Compression Buffer: {e}")
@@ -182,7 +233,15 @@ def main(argv: List[str]) -> int:
     try:
         job_submission_thread = Thread(
             target=submit_compression_jobs_thread_entry,
-            args=(compression_buffer, max_polling_period, exit_event),
+            args=(
+                compression_buffer,
+                max_polling_period,
+                jobs_collection,
+                "fs",  # input_type
+                seaweed_s3_endpoint_url,
+                seaweed_mnt_prefix,
+                exit_event,
+            ),
         )
         job_submission_thread.daemon = True
         job_submission_thread.start()
