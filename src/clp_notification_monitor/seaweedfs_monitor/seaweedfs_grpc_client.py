@@ -70,13 +70,9 @@ class SeaweedFSClient(SeaweedFilerServicer):
         )
         request: SubscribeMetadataRequest = SubscribeMetadataRequest()
         request.client_name = self._client_name
-
-        if Path("/") == path_prefix or "buckets" != path_prefix.parts[1]:
-            # Only paths under "/buckets" are S3 mapped. If the path prefix is
-            # not mapped, it is invalid. Stop the generator early.
-            return f"Path prefix {path_prefix} is not S3 mapped."
+        # TODO: clarify on which path prefixes are not S3 mapped and cannot be
+        # monitored.
         request.path_prefix = str(path_prefix)
-
         request.since_ns = since_ns
         self._logger.info("Subscribed to Filer gRPC metadata changes.")
 

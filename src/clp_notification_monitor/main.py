@@ -62,7 +62,8 @@ def submit_compression_jobs_thread_entry(
     jobs_collection: pymongo.collection.Collection,  # type: ignore
     input_type: str,
     seaweed_s3_endpoint_url: str,
-    seaweed_mnt_prefix: str,
+    filer_notification_path_prefix: Path,
+    seaweed_mnt_prefix: Path,
     exit: Event,
 ) -> None:
     """
@@ -79,54 +80,51 @@ def submit_compression_jobs_thread_entry(
             sleep_time: int = 1
             while True:
                 paths_to_compress = compression_buffer.get_paths_to_compress()
-                if len(paths_to_compress) > 0:
-                    new_job_entry: Dict[str, Any]
-                    if "s3" == input_type:
-                        input_buckets = []
-                        for full_s3_path in paths_to_compress:
-                            input_buckets.append(
-                                {
-                                    "endpoint_url": seaweed_s3_endpoint_url,
-                                    "s3_path_prefix": str(full_s3_path),
-                                    # Remove the bucket name from the path prefixes
-                                    "s3_path_prefix_to_remove_from_mount": "".join(
-                                        full_s3_path.parts[:2]
-                                    ),
-                                }
-                            )
-                        new_job_entry = {
-                            "input_type": "s3",
-                            "input_config": {
-                                "access_key_id": "",  # not used
-                                "secret_access_key": "",  # not used
-                                "buckets": input_buckets,
-                            },
-                            "output_config": {},
-                            "status": "pending",
-                            "submission_timestamp": math.floor(time.time() * 1000),
-                        }
-                    else:
-                        fs_compression_paths = []
-                        for full_s3_path in paths_to_compress:
-                            mounted_path_str = seaweed_mnt_prefix + str(full_s3_path)
-                            fs_compression_paths.append(mounted_path_str)
-                        new_job_entry = {
-                            "input_type": "fs",
-                            "input_config": {
-                                "path_prefix_to_remove": seaweed_mnt_prefix,
-                                "paths": fs_compression_paths,
-                            },
-                            "output_config": {},
-                            "status": "pending",
-                            "submission_timestamp": math.floor(time.time() * 1000),
-                        }
-
-                    jobs_collection.insert_one(new_job_entry)
-                    logger.info("Submitted job to compression database.")
-                    break
-                else:
+                if 0 == len(paths_to_compress):
                     time.sleep(sleep_time)
                     sleep_time = min(sleep_time * 2, max_polling_period)
+                    continue
+
+                new_job_entry: Dict[str, Any] = {
+                    "input_type": input_type,
+                    "output_config": {},
+                    "status": "pending",
+                    "submission_timestamp": math.floor(time.time() * 1000),
+                }
+                if "s3" == input_type:
+                    input_buckets: List[Dict[str, str]] = []
+                    for full_s3_path in paths_to_compress:
+                        input_buckets.append(
+                            {
+                                "endpoint_url": seaweed_s3_endpoint_url,
+                                "s3_path_prefix": str(full_s3_path),
+                                # Remove the bucket name from the path prefixes
+                                "s3_path_prefix_to_remove_from_mount": "".join(
+                                    full_s3_path.parts[:2]
+                                ),
+                            }
+                        )
+                    new_job_entry["input_config"] = {
+                        "access_key_id": "",  # not used
+                        "secret_access_key": "",  # not used
+                        "buckets": input_buckets,
+                    }
+                else:
+                    fs_compression_paths = []
+                    # Remove the leading slash from mounted path for path
+                    # concatenation
+                    for full_s3_path in paths_to_compress:
+                        mounted_path_str = seaweed_mnt_prefix + str(full_s3_path)[1:]
+                        fs_compression_paths.append(mounted_path_str)
+                    new_job_entry["input_config"] = {
+                        "paths": fs_compression_paths,
+                        "path_prefix_to_remove": (
+                            seaweed_mnt_prefix + str(filer_notification_path_prefix)[1:]
+                        ),
+                    }
+                jobs_collection.insert_one(new_job_entry)
+                logger.info("Submitted job to compression database.")
+                break
     except Exception as e:
         logger.error(f"Error on compression buffer: {e}")
     finally:
@@ -178,19 +176,36 @@ def main(argv: List[str]) -> int:
         help="The path prefix to monitor the filer notifications.",
     )
     parser.add_argument("--db-uri", required=True, help="Regional compression DB uri")
+
     # FS ingestion option
-    parser.add_argument(
+    input_type_parser = parser.add_subparsers(dest="input_type")
+    input_type_parser.required = True
+
+    input_type_parser.add_parser("s3")
+
+    fs_input_parser = input_type_parser.add_parser("fs")
+    fs_input_parser.add_argument(
         "--seaweed-mnt-prefix",
         help="The path prefix that the seaweed-fs is mount on",
     )
+
     args: argparse.Namespace = parser.parse_args(argv[1:])
 
     logger_init("./logs/notification.log", logging.INFO)
     seaweed_filer_endpoint: str = args.seaweed_filer_endpoint
     seaweed_s3_endpoint_url: str = args.seaweed_s3_endpoint_url
-    db_uri: str = args.db_uri
-    seaweed_mnt_prefix: str = args.seaweed_mnt_prefix
     filer_notification_path_prefix: Path = Path(args.filer_notification_path_prefix)
+    db_uri: str = args.db_uri
+    input_type: str = args.input_type
+
+    if not filer_notification_path_prefix.is_absolute():
+        parser.error("--filer-notification-path-prefix must be absolute.")
+
+    seaweed_mnt_prefix: Path = Path("/")
+    if "fs" == input_type:
+        seaweed_mnt_prefix: Path = Path(args.seaweed_mnt_prefix)
+        if not seaweed_mnt_prefix.is_absolute():
+            parser.error("--seaweed-mnt-prefix must be absolute.")
 
     seaweedfs_client: SeaweedFSClient
     try:
@@ -237,8 +252,9 @@ def main(argv: List[str]) -> int:
                 compression_buffer,
                 max_polling_period,
                 jobs_collection,
-                "fs",  # input_type
+                input_type,
                 seaweed_s3_endpoint_url,
+                filer_notification_path_prefix,
                 seaweed_mnt_prefix,
                 exit_event,
             ),
