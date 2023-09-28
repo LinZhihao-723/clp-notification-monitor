@@ -5,6 +5,7 @@ import math
 import pathlib
 import sys
 import time
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Thread
@@ -208,86 +209,69 @@ def main(argv: List[str]) -> int:
             parser.error("--seaweed-mnt-prefix must be absolute.")
 
     seaweedfs_client: SeaweedFSClient
-    try:
-        seaweedfs_client = SeaweedFSClient("clp—user", seaweed_filer_endpoint, logger)
-    except Exception as e:
-        logger.error(f"Failed to initiate seaweedfs client: {e}")
-        return -1
-
     db_client: pymongo.mongo_client.MongoClient  # type: ignore
-    archive_db: pymongo.database.Database  # type: ignore
-    jobs_collection: pymongo.collection.Collection  # type: ignore
-    logger.info("Start initiating MongoDB client.")
-    try:
-        db_client = pymongo.mongo_client.MongoClient(db_uri)
-        archive_db = db_client.get_default_database()
-        jobs_collection = archive_db["cjobs"]
-    except Exception as e:
-        logger.error(f"Failed to initiate MongoDB: {e}")
-        seaweedfs_client.close()
-        db_client.close()
-        return -1
-    logger.info("MongoDB client successfully initiated.")
 
-    compression_buffer: CompressionBuffer
-    try:
-        compression_buffer = CompressionBuffer(
-            logger=logger,
-            max_buffer_size=16 * 1024 * 1024,  # 16MB
-            min_refresh_period=5 * 1000,  # 5 seconds
-        )
-    except Exception as e:
-        logger.error(f"Failed to initiate Compression Buffer: {e}")
-        seaweedfs_client.close()
-        db_client.close()
-        return -1
+    logger.info("Initiating SeaweedFS and MongoDB clients.")
+    # fmt: off
+    with closing(SeaweedFSClient("clp—user", seaweed_filer_endpoint, logger)) as seaweedfs_client, \
+            closing(pymongo.MongoClient(db_uri)) as db_client:
+    # fmt: on
+        archive_db: pymongo.database.Database = db_client.get_default_database()
+        jobs_collection: pymongo.collection.Collection = archive_db["cjobs"]
+        logger.info("SeaweedFS and MongoDB clients successfully initiated.")
 
-    exit_event: Event = Event()
-    job_submission_thread: Thread
-    max_polling_period: int = 180  # 3 min
-    try:
-        job_submission_thread = Thread(
-            target=submit_compression_jobs_thread_entry,
-            args=(
-                compression_buffer,
-                max_polling_period,
-                jobs_collection,
-                input_type,
-                seaweed_s3_endpoint_url,
-                filer_notification_path_prefix,
-                seaweed_mnt_prefix,
-                exit_event,
-            ),
-        )
-        job_submission_thread.daemon = True
-        job_submission_thread.start()
-    except Exception as e:
-        logger.error(f"Failed to initiate Job Submission Thread: {e}")
-        seaweedfs_client.close()
-        db_client.close()
-        return -1
-
-    filer_listener_thread: Thread
-    try:
-        generator: Generator[S3NotificationMessage, None, None] = (
-            seaweedfs_client.s3_file_ingestion_listener(
-                filer_notification_path_prefix, since_ns=time.time_ns(), store_fid=False
+        compression_buffer: CompressionBuffer
+        try:
+            compression_buffer = CompressionBuffer(
+                logger=logger,
+                max_buffer_size=16 * 1024 * 1024,  # 16MB
+                min_refresh_period=5 * 1000,  # 5 seconds
             )
-        )
-        filer_listener_thread = Thread(
-            target=filer_ingestion_listener_thread_entry,
-            args=(generator, compression_buffer, exit_event),
-        )
-        filer_listener_thread.daemon = True
-        filer_listener_thread.start()
-    except Exception as e:
-        logger.error(f"Failed to initiate Filer listener thread: {e}")
-        seaweedfs_client.close()
-        db_client.close()
-        return -1
+        except Exception as e:
+            logger.error(f"Failed to initiate Compression Buffer: {e}")
+            return -1
 
-    while False is exit_event.is_set():
-        time.sleep(60)
-    seaweedfs_client.close()
-    db_client.close()
+        exit_event: Event = Event()
+        job_submission_thread: Thread
+        max_polling_period: int = 180  # 3 min
+        try:
+            job_submission_thread = Thread(
+                target=submit_compression_jobs_thread_entry,
+                args=(
+                    compression_buffer,
+                    max_polling_period,
+                    jobs_collection,
+                    input_type,
+                    seaweed_s3_endpoint_url,
+                    filer_notification_path_prefix,
+                    seaweed_mnt_prefix,
+                    exit_event,
+                ),
+            )
+            job_submission_thread.daemon = True
+            job_submission_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to initiate Job Submission Thread: {e}")
+            return -1
+
+        filer_listener_thread: Thread
+        try:
+            generator: Generator[S3NotificationMessage, None, None] = (
+                seaweedfs_client.s3_file_ingestion_listener(
+                    filer_notification_path_prefix, since_ns=time.time_ns(), store_fid=False
+                )
+            )
+            filer_listener_thread = Thread(
+                target=filer_ingestion_listener_thread_entry,
+                args=(generator, compression_buffer, exit_event),
+            )
+            filer_listener_thread.daemon = True
+            filer_listener_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to initiate Filer listener thread: {e}")
+            return -1
+
+        while False is exit_event.is_set():
+            time.sleep(60)
+
     return 0
