@@ -13,7 +13,27 @@ CLP Log Ingestion Notification Monitor.
 
 ## Start
 
-`python start.py --seaweed-filer-endpoint $SEAWEEDFS_ENDPOINT --seaweed-s3-endpoint $SEAWEEDFS_S3_GATEWAY --filer-notification-path-prefix $NOTIFICATION_PATH_PREFIX --db-uri $DATABASE_URI`
+To ingest files directly via the S3 API:
+
+```shell
+python start.py \
+--seaweed-filer-endpoint $SEAWEEDFS_ENDPOINT \
+--seaweed-s3-endpoint-url $SEAWEEDFS_S3_GATEWAY \
+--filer-notification-path-prefix $NOTIFICATION_PATH_PREFIX \
+--db-uri $DATABASE_URI \
+s3
+```
+
+To ingest files via mounted directories in the local filesystem:
+
+```shell
+python start.py \
+--seaweed-filer-endpoint $SEAWEEDFS_ENDPOINT \
+--seaweed-s3-endpoint-url $SEAWEEDFS_S3_GATEWAY \
+--filer-notification-path-prefix $NOTIFICATION_PATH_PREFIX \
+--db-uri $DATABASE_URI \
+fs --seaweed-mnt-prefix  $SEAWEED_MNT_PREFIX
+```
 
 ## Contributing
 
