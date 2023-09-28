@@ -89,6 +89,7 @@ class SeaweedFSClient(SeaweedFilerServicer):
                 full_path: Path = Path(response.directory) / Path(new_entry.name)
                 if 3 >= len(full_path.parts):
                     continue
+                s3_bucket = full_path.parts[1]
                 s3_full_path: Path = Path("/").joinpath(*full_path.parts[2:])
                 file_size: int = new_entry.attributes.file_size
                 fid_list: List[SeaweedFID] = []
@@ -97,6 +98,6 @@ class SeaweedFSClient(SeaweedFilerServicer):
                         fid_list.append(
                             SeaweedFID(chunk.fid.volume_id, chunk.fid.file_key, chunk.fid.cookie)
                         )
-                yield S3NotificationMessage(s3_full_path, file_size, fid_list)
+                yield S3NotificationMessage(s3_bucket, s3_full_path, file_size, fid_list)
             except Exception as e:
                 self._logger.error(f"Exception on Filer gRPC response: {e}")

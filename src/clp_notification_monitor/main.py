@@ -94,8 +94,12 @@ def filer_ingestion_listener_thread_entry(
     try:
         for notification in notification_generator:
             logger.info(f"Ingestion: {notification.s3_full_path}")
+            logger.info(f"Bucket: {notification.s3_bucket}")
             compression_buffer.append(
-                notification.s3_full_path, notification.file_size, datetime.now()
+                notification.s3_bucket,
+                notification.s3_full_path, 
+                notification.file_size, 
+                datetime.now()
             )
     except Exception as e:
         logger.error(f"Error on Filer notification listener: {e}")

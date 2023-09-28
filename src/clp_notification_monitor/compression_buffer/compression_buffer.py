@@ -4,7 +4,7 @@ from logging import Logger
 from math import floor
 from pathlib import PurePath
 from threading import Condition, Lock
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pymongo.collection import Collection
 
@@ -25,7 +25,7 @@ class CompressionBuffer:
         self._mnt_prefix: PurePath = PurePath(mnt_prefix)
         self._path_prefixes: List[Dict[str, str]] = []
 
-        self.__path_list: List[PurePath] = []
+        self.__path_list: List[Tuple[str,PurePath]] = []
         self.__total_buffer_size: int = 0
         self.__first_path_timestamp: Optional[datetime] = None
 
@@ -42,6 +42,7 @@ class CompressionBuffer:
 
     def append(
         self,
+        s3_bucket: str,
         s3_path: PurePath,
         object_size: int,
         process_timestamp: datetime,
@@ -50,7 +51,7 @@ class CompressionBuffer:
             self.__total_buffer_size += object_size
             if self.__first_path_timestamp is None:
                 self.__first_path_timestamp = process_timestamp
-            self.__path_list.append(s3_path)
+            self.__path_list.append((s3_bucket, s3_path))
             self.__populate_buffer_cv.notify_all()
 
     def wait_for_compression_jobs(self) -> None:
@@ -93,7 +94,7 @@ class CompressionBuffer:
         with self.__lock:
             path_prefixes = [
                 self.generate_compression_entry_from_s3_path_prefix(s3_path)
-                for s3_path in self.__path_list
+                for s3_bucket, s3_path in self.__path_list
             ]
             self.clear_buffer()
 
@@ -119,10 +120,10 @@ class CompressionBuffer:
         if not self.ready_for_compression():
             return False
 
-        compression_path: List[str]
+        compression_path: List[Tuple(str, str)]
         with self.__lock:
             compression_path = [
-                str(PurePath(str(self._mnt_prefix) + str(s3_path))) for s3_path in self.__path_list
+                (s3_bucket, str(s3_path)) for s3_bucket, s3_path in self.__path_list
             ]
             self.clear_buffer()
 
