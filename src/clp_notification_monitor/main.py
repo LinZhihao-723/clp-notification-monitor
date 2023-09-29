@@ -115,12 +115,12 @@ def submit_compression_jobs_thread_entry(
                     # Remove the leading slash from mounted path for path
                     # concatenation
                     for full_s3_path in paths_to_compress:
-                        mounted_path_str = seaweed_mnt_prefix + str(full_s3_path)[1:]
+                        mounted_path_str = str(seaweed_mnt_prefix / full_s3_path.relative_to("/"))
                         fs_compression_paths.append(mounted_path_str)
                     new_job_entry["input_config"] = {
                         "paths": fs_compression_paths,
-                        "path_prefix_to_remove": (
-                            seaweed_mnt_prefix + str(filer_notification_path_prefix)[1:]
+                        "path_prefix_to_remove": str(
+                            seaweed_mnt_prefix / filer_notification_path_prefix.relative_to("/")
                         ),
                     }
                 jobs_collection.insert_one(new_job_entry)
