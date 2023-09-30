@@ -111,11 +111,13 @@ def submit_compression_jobs_thread_entry(
                         "buckets": input_buckets,
                     }
                 else:
-                    fs_compression_paths = []
+                    fs_compression_paths: List[str] = []
                     # Remove the leading slash from mounted path for path
                     # concatenation
                     for full_s3_path in paths_to_compress:
-                        mounted_path_str = str(seaweed_mnt_prefix / full_s3_path.relative_to("/"))
+                        mounted_path_str: str = str(
+                            seaweed_mnt_prefix / full_s3_path.relative_to("/")
+                        )
                         fs_compression_paths.append(mounted_path_str)
                     new_job_entry["input_config"] = {
                         "paths": fs_compression_paths,
@@ -178,13 +180,12 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument("--db-uri", required=True, help="Regional compression DB uri")
 
-    # FS ingestion option
-    input_type_parser = parser.add_subparsers(dest="input_type")
+    input_type_parser: argparse._SubParsersAction = parser.add_subparsers(dest="input_type")
     input_type_parser.required = True
 
     input_type_parser.add_parser("s3")
 
-    fs_input_parser = input_type_parser.add_parser("fs")
+    fs_input_parser: argparse.ArgumentParser = input_type_parser.add_parser("fs")
     fs_input_parser.add_argument(
         "--seaweed-mnt-prefix",
         help="The path prefix that the seaweed-fs is mount on",
@@ -204,7 +205,7 @@ def main(argv: List[str]) -> int:
 
     seaweed_mnt_prefix: Path = Path("/")
     if "fs" == input_type:
-        seaweed_mnt_prefix: Path = Path(args.seaweed_mnt_prefix)
+        seaweed_mnt_prefix = Path(args.seaweed_mnt_prefix)
         if not seaweed_mnt_prefix.is_absolute():
             parser.error("--seaweed-mnt-prefix must be absolute.")
 
