@@ -94,9 +94,7 @@ def filer_ingestion_listener_thread_entry(
     try:
         for notification in notification_generator:
             logger.info(f"Ingestion: {notification.s3_full_path}")
-            logger.info(f"Bucket: {notification.s3_bucket}")
             compression_buffer.append(
-                notification.s3_bucket,
                 notification.s3_full_path, 
                 notification.file_size, 
                 datetime.now()
@@ -170,6 +168,7 @@ def main(argv: List[str]) -> int:
             max_buffer_size=16 * 1024 * 1024,  # 16MB
             min_refresh_period=5 * 1000,  # 5 seconds
             mnt_prefix=mnt_prefix,
+            notification_path_prefix=filer_notification_path_prefix,
         )
     except Exception as e:
         logger.error(f"Failed to initiate Compression Buffer: {e}")

@@ -18,11 +18,13 @@ class CompressionBuffer:
         max_buffer_size: int,
         min_refresh_period: int,
         mnt_prefix: str,
+        notification_path_prefix: str,
     ):
         self._logger: Logger = logger
         self._jobs_collection: Collection = jobs_collection  # type: ignore
         self._endpoint_url: str = s3_endpoint
         self._mnt_prefix: PurePath = PurePath(mnt_prefix)
+        self._prefix_to_remove: PurePath = self._mnt_prefix / PurePath(notification_path_prefix).relative_to("/")
         self._path_prefixes: List[Dict[str, str]] = []
 
         self.__path_list: List[Tuple[str,PurePath]] = []
@@ -42,7 +44,6 @@ class CompressionBuffer:
 
     def append(
         self,
-        s3_bucket: str,
         s3_path: PurePath,
         object_size: int,
         process_timestamp: datetime,
@@ -51,7 +52,7 @@ class CompressionBuffer:
             self.__total_buffer_size += object_size
             if self.__first_path_timestamp is None:
                 self.__first_path_timestamp = process_timestamp
-            self.__path_list.append((s3_bucket, s3_path))
+            self.__path_list.append(s3_path)
             self.__populate_buffer_cv.notify_all()
 
     def wait_for_compression_jobs(self) -> None:
@@ -93,8 +94,8 @@ class CompressionBuffer:
         path_prefixes: List[Dict[str, str]]
         with self.__lock:
             path_prefixes = [
-                self.generate_compression_entry_from_s3_path_prefix(s3_path)
-                for s3_bucket, s3_path in self.__path_list
+                self.generate_compression_entry_from_s3_path_prefix(s3_path) 
+                    for s3_path in self.__path_list
             ]
             self.clear_buffer()
 
@@ -123,14 +124,14 @@ class CompressionBuffer:
         compression_path: List[Tuple(str, str)]
         with self.__lock:
             compression_path = [
-                (s3_bucket, str(s3_path)) for s3_bucket, s3_path in self.__path_list
+                str(self._mnt_prefix / s3_path.relative_to("/")) for s3_path in self.__path_list
             ]
             self.clear_buffer()
 
         new_job = {
             "input_type": "fs",
             "input_config": {
-                "path_prefix_to_remove": str(self._mnt_prefix),
+                "path_prefix_to_remove": str(self._prefix_to_remove),
                 "paths": compression_path,
             },
             "output_config": {},
@@ -142,6 +143,8 @@ class CompressionBuffer:
         return True
 
     def generate_compression_entry_from_s3_path_prefix(self, s3_path: PurePath) -> Dict[str, str]:
+        # TODO: This function current doesn't align with CLP's input config protocol
+        # If we are to use s3 flow, need to modify this function
         return {
             "endpoint_url": self._endpoint_url,
             "s3_path_prefix": str(s3_path),
