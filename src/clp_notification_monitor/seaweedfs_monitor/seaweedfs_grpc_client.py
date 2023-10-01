@@ -84,10 +84,11 @@ class SeaweedFSClient(SeaweedFilerServicer):
                     continue
                 if new_entry.is_directory:
                     continue
-                full_path: Path = Path(response.directory) / Path(new_entry.name)
-                if 3 >= len(full_path.parts):
+                s3_full_path: Path = Path(response.directory) / Path(new_entry.name)
+                if 3 >= len(s3_full_path.parts):
+                    logger.warning(f"Skipping {s3_full_path}")
                     continue
-                s3_full_path: Path = Path("/").joinpath(*full_path.parts[2:])
+
                 file_size: int = new_entry.attributes.file_size
                 fid_list: List[SeaweedFID] = []
                 if store_fid:
