@@ -4,7 +4,7 @@ from logging import Logger
 from math import floor
 from pathlib import PurePath
 from threading import Condition, Lock
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from pymongo.collection import Collection
 
@@ -24,10 +24,12 @@ class CompressionBuffer:
         self._jobs_collection: Collection = jobs_collection  # type: ignore
         self._endpoint_url: str = s3_endpoint
         self._mnt_prefix: PurePath = PurePath(mnt_prefix)
-        self._prefix_to_remove: PurePath = self._mnt_prefix / PurePath(notification_path_prefix).relative_to("/")
+        self._prefix_to_remove: PurePath = self._mnt_prefix / PurePath(
+            notification_path_prefix
+        ).relative_to("/")
         self._path_prefixes: List[Dict[str, str]] = []
 
-        self.__path_list: List[Tuple[str,PurePath]] = []
+        self.__path_list: List[PurePath] = []
         self.__total_buffer_size: int = 0
         self.__first_path_timestamp: Optional[datetime] = None
 
@@ -94,8 +96,8 @@ class CompressionBuffer:
         path_prefixes: List[Dict[str, str]]
         with self.__lock:
             path_prefixes = [
-                self.generate_compression_entry_from_s3_path_prefix(s3_path) 
-                    for s3_path in self.__path_list
+                self.generate_compression_entry_from_s3_path_prefix(s3_path)
+                for s3_path in self.__path_list
             ]
             self.clear_buffer()
 
@@ -121,7 +123,7 @@ class CompressionBuffer:
         if not self.ready_for_compression():
             return False
 
-        compression_path: List[Tuple(str, str)]
+        compression_path: List[str]
         with self.__lock:
             compression_path = [
                 str(self._mnt_prefix / s3_path.relative_to("/")) for s3_path in self.__path_list
