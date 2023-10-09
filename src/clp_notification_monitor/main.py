@@ -179,6 +179,21 @@ def main(argv: List[str]) -> int:
         help="The path prefix to monitor the filer notifications.",
     )
     parser.add_argument("--db-uri", required=True, help="Regional compression DB uri")
+    parser.add_argument(
+        "--max-buffer-size",
+        type=int,
+        default=16 * 1024 * 1024,  # 16MB
+        help="Size to trigger a new compression job in the monitor buffer.",
+    )
+    parser.add_argument(
+        "--min-refresh-frequency",
+        type=int,
+        default=5 * 1000,  # 5 seconds
+        help=(
+            "Minimum frequency to trigger a new compression job in the monitor buffer. Value is the"
+            " trigger period in milliseconds."
+        ),
+    )
 
     input_type_parser: argparse._SubParsersAction = parser.add_subparsers(dest="input_type")
     input_type_parser.required = True
@@ -198,6 +213,8 @@ def main(argv: List[str]) -> int:
     seaweed_s3_endpoint_url: str = args.seaweed_s3_endpoint_url
     filer_notification_path_prefix: Path = Path(args.filer_notification_path_prefix)
     db_uri: str = args.db_uri
+    max_buffer_size: int = args.max_buffer_size
+    min_refresh_period: int = args.min_refresh_frequency
     input_type: str = args.input_type
 
     if not filer_notification_path_prefix.is_absolute():
@@ -225,8 +242,8 @@ def main(argv: List[str]) -> int:
         try:
             compression_buffer = CompressionBuffer(
                 logger=logger,
-                max_buffer_size=16 * 1024 * 1024,  # 16MB
-                min_refresh_period=5 * 1000,  # 5 seconds
+                max_buffer_size=max_buffer_size,
+                min_refresh_period=min_refresh_period,
             )
         except Exception as e:
             logger.error(f"Failed to initiate Compression Buffer: {e}")

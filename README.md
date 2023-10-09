@@ -21,6 +21,8 @@ python start.py \
 --seaweed-s3-endpoint-url $SEAWEEDFS_S3_GATEWAY \
 --filer-notification-path-prefix $NOTIFICATION_PATH_PREFIX \
 --db-uri $DATABASE_URI \
+--max-buffer-size 16777216 \
+--min-refresh-frequency 5000 \
 s3
 ```
 
@@ -32,6 +34,8 @@ python start.py \
 --seaweed-s3-endpoint-url $SEAWEEDFS_S3_GATEWAY \
 --filer-notification-path-prefix $NOTIFICATION_PATH_PREFIX \
 --db-uri $DATABASE_URI \
+--max-buffer-size 16777216 \
+--min-refresh-frequency 5000 \
 fs --seaweed-mnt-prefix  $SEAWEED_MNT_PREFIX
 ```
 
