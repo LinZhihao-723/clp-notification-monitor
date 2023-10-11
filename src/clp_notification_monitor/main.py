@@ -15,7 +15,10 @@ import pymongo
 
 from clp_notification_monitor.compression_buffer.compression_buffer import CompressionBuffer
 from clp_notification_monitor.seaweedfs_monitor.notification_message import S3NotificationMessage
-from clp_notification_monitor.seaweedfs_monitor.seaweedfs_grpc_client import SeaweedFSClient, MTLSConfig
+from clp_notification_monitor.seaweedfs_monitor.seaweedfs_grpc_client import (
+    MTLSConfig,
+    SeaweedFSClient,
+)
 
 """
 Global logger
@@ -197,7 +200,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument(
         "--grpc-secure",
         required=False,
-        action='store_true',
+        action="store_true",
         help="The grpc connection must be secure.",
     )
     parser.add_argument(
@@ -262,11 +265,21 @@ def main(argv: List[str]) -> int:
     if mtls_conf.Secure:
         if None in [args.mtls_chain_path, args.mtls_private_path, args.mtls_server_path]:
             parser.error("mtls cert paths is required with --grpc-secure.")
-        mtls_conf.ChainPath, mtls_conf.PrivateKeyPath, mtls_conf.ServerPath = map(Path, [args.mtls_chain_path, args.mtls_private_path, args.mtls_server_path])
+        mtls_conf.ChainPath, mtls_conf.PrivateKeyPath, mtls_conf.ServerPath = map(
+            Path, [args.mtls_chain_path, args.mtls_private_path, args.mtls_server_path]
+        )
         mtls_conf.SSLTargetOverride = args.mtls_target_override
-        if False in [mtls_conf.ChainPath.is_absolute(), mtls_conf.PrivateKeyPath.is_absolute(), mtls_conf.ServerPath.is_absolute()]:
+        if False in [
+            mtls_conf.ChainPath.is_absolute(),
+            mtls_conf.PrivateKeyPath.is_absolute(),
+            mtls_conf.ServerPath.is_absolute(),
+        ]:
             parser.error("mtls cert paths must be absolute.")
-        if False in [mtls_conf.ChainPath.is_file(), mtls_conf.PrivateKeyPath.is_file(), mtls_conf.ServerPath.is_file()]:
+        if False in [
+            mtls_conf.ChainPath.is_file(),
+            mtls_conf.PrivateKeyPath.is_file(),
+            mtls_conf.ServerPath.is_file(),
+        ]:
             parser.error("mtls cert paths must exist.")
 
     seaweedfs_client: SeaweedFSClient

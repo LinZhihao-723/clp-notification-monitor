@@ -1,8 +1,7 @@
-import os
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, List
-from dataclasses import dataclass
 
 import grpc
 
@@ -20,12 +19,13 @@ from clp_notification_monitor.seaweedfs_monitor.notification_message import (
     SeaweedFID,
 )
 
+
 @dataclass
 class MTLSConfig:
-    Secure: bool           = False
-    ChainPath: Path        = Path("etc/certs/chain.crt")
-    PrivateKeyPath: Path   = Path("etc/certs/private.key")
-    ServerPath: Path       = Path("etc/certs/server.crt")
+    Secure: bool = False
+    ChainPath: Path = Path("etc/certs/chain.crt")
+    PrivateKeyPath: Path = Path("etc/certs/private.key")
+    ServerPath: Path = Path("etc/certs/server.crt")
     SSLTargetOverride: str = ""
 
 
@@ -38,7 +38,9 @@ class SeaweedFSClient(SeaweedFilerServicer):
     the server.
     """
 
-    def __init__(self, client_name: str, endpoint: str, mtls_conf: MTLSConfig, logger: logging.Logger):
+    def __init__(
+        self, client_name: str, endpoint: str, mtls_conf: MTLSConfig, logger: logging.Logger
+    ):
         """
         Constructor.
 
@@ -50,11 +52,13 @@ class SeaweedFSClient(SeaweedFilerServicer):
         self._client_name: str = client_name
         self._channel: grpc.Channel
         if mtls_conf.Secure:
-            server_cert, private_key, certificate_chain = map(lambda x: open(x, 'rb').read(),
-                [mtls_conf.ServerPath, mtls_conf.PrivateKeyPath, mtls_conf.ChainPath])
+            server_cert, private_key, certificate_chain = map(
+                lambda x: open(x, "rb").read(),
+                [mtls_conf.ServerPath, mtls_conf.PrivateKeyPath, mtls_conf.ChainPath],
+            )
             creds = grpc.ssl_channel_credentials(server_cert, private_key, certificate_chain)
             if mtls_conf.SSLTargetOverride != "":
-                options = (('grpc.ssl_target_name_override', mtls_conf.SSLTargetOverride),)
+                options = (("grpc.ssl_target_name_override", mtls_conf.SSLTargetOverride),)
                 self._channel = grpc.secure_channel(endpoint, creds, options=options)
             else:
                 self._channel = grpc.secure_channel(endpoint, creds)
