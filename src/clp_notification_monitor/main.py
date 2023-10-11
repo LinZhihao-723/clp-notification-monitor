@@ -15,7 +15,7 @@ import pymongo
 
 from clp_notification_monitor.compression_buffer.compression_buffer import CompressionBuffer
 from clp_notification_monitor.seaweedfs_monitor.notification_message import S3NotificationMessage
-from clp_notification_monitor.seaweedfs_monitor.seaweedfs_grpc_client import SeaweedFSClient
+from clp_notification_monitor.seaweedfs_monitor.seaweedfs_grpc_client import SeaweedFSClient, MTLSConfig
 
 """
 Global logger
@@ -194,6 +194,37 @@ def main(argv: List[str]) -> int:
             " trigger period in milliseconds."
         ),
     )
+    parser.add_argument(
+        "--grpc-secure",
+        required=False,
+        action='store_true',
+        help="The grpc connection must be secure.",
+    )
+    parser.add_argument(
+        "--mtls_chain_path",
+        required=False,
+        type=str,
+        help="The path of grpc mtls chain cert",
+    )
+    parser.add_argument(
+        "--mtls_private_path",
+        required=False,
+        type=str,
+        help="The path of grpc mtls private cert",
+    )
+    parser.add_argument(
+        "--mtls_server_path",
+        required=False,
+        type=str,
+        help="The path of grpc mtls server cert",
+    )
+    parser.add_argument(
+        "--mtls_target_override",
+        required=False,
+        type=str,
+        default="",
+        help="The server name override in mtls cert",
+    )
 
     input_type_parser: argparse._SubParsersAction = parser.add_subparsers(dest="input_type")
     input_type_parser.required = True
@@ -226,12 +257,24 @@ def main(argv: List[str]) -> int:
         if not seaweed_mnt_prefix.is_absolute():
             parser.error("--seaweed-mnt-prefix must be absolute.")
 
+    mtls_conf: MTLSConfig = MTLSConfig()
+    mtls_conf.Secure = args.grpc_secure
+    if mtls_conf.Secure:
+        if None in [args.mtls_chain_path, args.mtls_private_path, args.mtls_server_path]:
+            parser.error("mtls cert paths is required with --grpc-secure.")
+        mtls_conf.ChainPath, mtls_conf.PrivateKeyPath, mtls_conf.ServerPath = map(Path, [args.mtls_chain_path, args.mtls_private_path, args.mtls_server_path])
+        mtls_conf.SSLTargetOverride = args.mtls_target_override
+        if False in [mtls_conf.ChainPath.is_absolute(), mtls_conf.PrivateKeyPath.is_absolute(), mtls_conf.ServerPath.is_absolute()]:
+            parser.error("mtls cert paths must be absolute.")
+        if False in [mtls_conf.ChainPath.is_file(), mtls_conf.PrivateKeyPath.is_file(), mtls_conf.ServerPath.is_file()]:
+            parser.error("mtls cert paths must exist.")
+
     seaweedfs_client: SeaweedFSClient
     db_client: pymongo.mongo_client.MongoClient  # type: ignore
 
     logger.info("Initiating SeaweedFS and MongoDB clients.")
     # fmt: off
-    with closing(SeaweedFSClient("clp—user", seaweed_filer_endpoint, logger)) as seaweedfs_client, \
+    with closing(SeaweedFSClient("clp—user", seaweed_filer_endpoint, mtls_conf, logger)) as seaweedfs_client, \
             closing(pymongo.MongoClient(db_uri)) as db_client:
     # fmt: on
         archive_db: pymongo.database.Database = db_client.get_default_database()
