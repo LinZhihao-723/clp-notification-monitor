@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from logging import Logger
 from pathlib import Path, PurePath
 from threading import Condition, Lock
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 class SingleBuffer:
@@ -121,20 +121,22 @@ class CompressionBuffer:
 
         return ready_buffers
 
-    def get_paths_to_compress(self) -> List[PurePath]:
+    def get_paths_to_compress(self) -> Tuple[List[PurePath], str]:
         """
         :return: The path list of the current buffer if the compression job can
         be fired. Otherwise, returns an empty list.
+        Also returns the index name that applies to all the paths in this job.
         """
+        buffer_name: str = ""
         if 0 == len(self.__ready_buffers):
             self.__lock.acquire()
             self.__ready_buffers = self._get_buffers_ready_for_compression()
             if 0 == len(self.__ready_buffers):
                 self.__lock.release()
-                return []
+                return [], buffer_name
 
-        top_buffer_name: str = self.__ready_buffers.pop(0)
-        target_buffer: SingleBuffer = self.__named_buffers[top_buffer_name]
+        buffer_name = self.__ready_buffers.pop(0)
+        target_buffer: SingleBuffer = self.__named_buffers[buffer_name]
 
         # Get a deepcopy of the current path list
         path_list_to_return = list(target_buffer.path_list)
@@ -145,4 +147,4 @@ class CompressionBuffer:
         if 0 == len(self.__ready_buffers):
             self.__lock.release()
 
-        return path_list_to_return
+        return path_list_to_return, buffer_name

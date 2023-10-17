@@ -83,7 +83,7 @@ def submit_compression_jobs_thread_entry(
             compression_buffer.wait_for_compression_jobs()
             sleep_time: int = 1
             while True:
-                paths_to_compress = compression_buffer.get_paths_to_compress()
+                paths_to_compress, path_group = compression_buffer.get_paths_to_compress()
                 if 0 == len(paths_to_compress):
                     time.sleep(sleep_time)
                     sleep_time = min(sleep_time * 2, max_polling_period)
@@ -95,6 +95,8 @@ def submit_compression_jobs_thread_entry(
                     "status": "pending",
                     "submission_timestamp": math.floor(time.time() * 1000),
                 }
+
+                # Configure input parameters according to the input type
                 if "s3" == input_type:
                     input_buckets: List[Dict[str, str]] = []
                     for full_s3_path in paths_to_compress:
@@ -128,6 +130,11 @@ def submit_compression_jobs_thread_entry(
                             seaweed_mnt_prefix / filer_notification_path_prefix.relative_to("/")
                         ),
                     }
+
+                # Add job group index to the input parameters if one is specified
+                if len(path_group) > 0:
+                    new_job_entry["input_config"]["path_group"] = path_group
+
                 jobs_collection.insert_one(new_job_entry)
                 logger.info("Submitted job to compression database.")
                 break
