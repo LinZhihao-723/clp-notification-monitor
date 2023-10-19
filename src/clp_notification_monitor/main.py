@@ -83,7 +83,7 @@ def submit_compression_jobs_thread_entry(
             compression_buffer.wait_for_compression_jobs()
             sleep_time: int = 1
             while True:
-                paths_to_compress = compression_buffer.get_paths_to_compress()
+                paths_to_compress, path_group = compression_buffer.get_paths_to_compress()
                 if 0 == len(paths_to_compress):
                     time.sleep(sleep_time)
                     sleep_time = min(sleep_time * 2, max_polling_period)
@@ -95,6 +95,8 @@ def submit_compression_jobs_thread_entry(
                     "status": "pending",
                     "submission_timestamp": math.floor(time.time() * 1000),
                 }
+
+                # Configure input parameters according to the input type
                 if "s3" == input_type:
                     input_buckets: List[Dict[str, str]] = []
                     for full_s3_path in paths_to_compress:
@@ -128,6 +130,11 @@ def submit_compression_jobs_thread_entry(
                             seaweed_mnt_prefix / filer_notification_path_prefix.relative_to("/")
                         ),
                     }
+
+                # Add job group index to the input parameters if one is specified
+                if len(path_group) > 0:
+                    new_job_entry["input_config"]["path_group"] = path_group
+
                 jobs_collection.insert_one(new_job_entry)
                 logger.info("Submitted job to compression database.")
                 break
@@ -198,6 +205,14 @@ def main(argv: List[str]) -> int:
         ),
     )
     parser.add_argument(
+        "--group-by-paths-under-prefix",
+        default="/nonexistent",
+        help=(
+            "Files under this path prefix will be grouped by folders when they are to be compressed"
+            " into archives."
+        ),
+    )
+    parser.add_argument(
         "--grpc-secure",
         required=False,
         action="store_true",
@@ -249,10 +264,14 @@ def main(argv: List[str]) -> int:
     db_uri: str = args.db_uri
     max_buffer_size: int = args.max_buffer_size
     min_refresh_period: int = args.min_refresh_frequency
+    group_by_paths_under_prefix: Path = Path(args.group_by_paths_under_prefix)
     input_type: str = args.input_type
 
     if not filer_notification_path_prefix.is_absolute():
         parser.error("--filer-notification-path-prefix must be absolute.")
+
+    if not group_by_paths_under_prefix.is_absolute():
+        parser.error("--group-by-paths-under-prefix must be absolute.")
 
     seaweed_mnt_prefix: Path = Path("/")
     if "fs" == input_type:
@@ -287,9 +306,10 @@ def main(argv: List[str]) -> int:
 
     logger.info("Initiating SeaweedFS and MongoDB clients.")
     # fmt: off
-    with closing(SeaweedFSClient("clp—user", seaweed_filer_endpoint, mtls_conf, logger)) as seaweedfs_client, \
-            closing(pymongo.MongoClient(db_uri)) as db_client:
-    # fmt: on
+    with closing(
+        SeaweedFSClient("clp—user", seaweed_filer_endpoint, mtls_conf, logger)
+    ) as seaweedfs_client, closing(pymongo.MongoClient(db_uri)) as db_client:
+        # fmt: on
         archive_db: pymongo.database.Database = db_client.get_default_database()
         jobs_collection: pymongo.collection.Collection = archive_db["cjobs"]
         logger.info("SeaweedFS and MongoDB clients successfully initiated.")
@@ -300,6 +320,7 @@ def main(argv: List[str]) -> int:
                 logger=logger,
                 max_buffer_size=max_buffer_size,
                 min_refresh_period=min_refresh_period,
+                group_by_paths_under_prefix=group_by_paths_under_prefix,
             )
         except Exception as e:
             logger.error(f"Failed to initiate Compression Buffer: {e}")

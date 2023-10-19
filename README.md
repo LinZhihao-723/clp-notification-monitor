@@ -39,6 +39,12 @@ python start.py \
 fs --seaweed-mnt-prefix  $SEAWEED_MNT_PREFIX
 ```
 
+To introduce job grouping by folder names under a specific path prefix, add the
+following option:
+```shell
+--group-by-paths-under-prefix $GROUP_BY_PATH_UNDER_PREFIX
+```
+
 ## Contributing
 
 Before submitting a pull request, run the following error-checking and
